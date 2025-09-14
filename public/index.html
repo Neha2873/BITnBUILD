@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Budget Dashboard</title>
+    <!-- Inter font from Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- D3.js for the graph -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        /* Styles for the modal backdrop */
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        /* Styles for the modal content */
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+            width: 90%;
+            transform: scale(0.95);
+            transition: transform 0.2s ease-out;
+        }
+
+        .modal-open .modal-content {
+            transform: scale(1);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4 sm:p-8 flex items-center justify-center">
+
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-5xl overflow-hidden transform transition-all duration-300">
+        <!-- Header Section -->
+        <div class="p-6 sm:p-8 bg-blue-600 text-white rounded-t-2xl">
+            <h1 class="text-3xl sm:text-4xl font-bold tracking-tight mb-1">Budget Overview</h1>
+            <p class="text-blue-200 text-sm sm:text-base">Track your finances and stay on target.</p>
+        </div>
+
+        <!-- Dashboard Content -->
+        <div class="p-6 sm:p-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Summary Cards -->
+            <div class="col-span-1 md:col-span-1 space-y-4">
+                <div class="bg-indigo-50 rounded-xl p-6 shadow-md border border-indigo-100">
+                    <p class="text-sm text-indigo-700 font-medium">Total Budget</p>
+                    <p id="totalBudget" class="text-3xl font-bold text-indigo-800 mt-2">$2,500</p>
+                </div>
+                <div class="bg-green-50 rounded-xl p-6 shadow-md border border-green-100">
+                    <p class="text-sm text-green-700 font-medium">Amount Spent</p>
+                    <p id="amountSpent" class="text-3xl font-bold text-green-800 mt-2">$1,200</p>
+                </div>
+                <div class="bg-red-50 rounded-xl p-6 shadow-md border border-red-100">
+                    <p class="text-sm text-red-700 font-medium">Remaining</p>
+                    <p id="remainingBudget" class="text-3xl font-bold text-red-800 mt-2">$1,300</p>
+                </div>
+            </div>
+
+            <!-- Bar Chart -->
+            <div class="col-span-1 md:col-span-2 bg-gray-50 rounded-xl p-6 shadow-md border border-gray-100 flex flex-col items-center justify-center">
+                <h2 class="text-lg font-semibold text-gray-800 mb-4">Spending by Category</h2>
+                <!-- SVG container for the D3.js graph -->
+                <svg id="budget-chart" class="w-full h-64 sm:h-80"></svg>
+            </div>
+        </div>
+
+        <!-- Interactive Input Section -->
+        <div class="p-6 sm:p-8 bg-gray-50 border-t border-gray-200">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">Update Spending</h3>
+            <div id="input-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Input fields will be dynamically added here -->
+            </div>
+            <button id="addCategoryBtn" class="mt-6 w-full sm:w-auto bg-blue-600 text-white font-medium py-3 px-6 rounded-xl shadow-lg hover:bg-blue-700 transition duration-300 transform hover:scale-105">
+                Add New Category
+            </button>
+        </div>
+    </div>
+
+    <!-- Custom Modal for adding a new category -->
+    <div id="addModal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <h4 class="text-xl font-bold mb-4">Add a New Category</h4>
+            <input type="text" id="categoryNameInput" placeholder="Category Name" class="w-full p-3 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4">
+            <div class="flex justify-end gap-2">
+                <button id="cancelModalBtn" class="bg-gray-200 text-gray-700 font-medium py-2 px-4 rounded-xl hover:bg-gray-300 transition duration-300">
+                    Cancel
+                </button>
+                <button id="addModalBtn" class="bg-blue-600 text-white font-medium py-2 px-4 rounded-xl hover:bg-blue-700 transition duration-300">
+                    Add
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // Initial sample data for the dashboard.
+            let budgetData = [
+                { category: 'Groceries', value: 350 },
+                { category: 'Rent', value: 800 },
+                { category: 'Utilities', value: 200 },
+                { category: 'Transport', value: 150 },
+                { category: 'Other', value: 50 },
+            ];
+
+            const totalBudgetAmount = 2500;
+
+            // --- DOM Elements ---
+            const totalBudgetEl = document.getElementById('totalBudget');
+            const amountSpentEl = document.getElementById('amountSpent');
+            const remainingBudgetEl = document.getElementById('remainingBudget');
+            const inputContainer = document.getElementById('input-container');
+            const addCategoryBtn = document.getElementById('addCategoryBtn');
+            const addModal = document.getElementById('addModal');
+            const categoryNameInput = document.getElementById('categoryNameInput');
+            const addModalBtn = document.getElementById('addModalBtn');
+            const cancelModalBtn = document.getElementById('cancelModalBtn');
+
+            // --- Dashboard Card Logic ---
+            function updateSummaryCards() {
+                const totalSpent = budgetData.reduce((sum, item) => sum + item.value, 0);
+                const remaining = totalBudgetAmount - totalSpent;
+
+                amountSpentEl.textContent = `$${totalSpent.toLocaleString()}`;
+                remainingBudgetEl.textContent = `$${remaining.toLocaleString()}`;
+                totalBudgetEl.textContent = `$${totalBudgetAmount.toLocaleString()}`;
+
+                // Change color of remaining budget based on status
+                remainingBudgetEl.parentElement.classList.remove('bg-red-50', 'bg-red-200', 'bg-orange-200', 'bg-green-50');
+                if (remaining < 0) {
+                    remainingBudgetEl.parentElement.classList.add('bg-red-200');
+                    remainingBudgetEl.classList.remove('text-red-800');
+                    remainingBudgetEl.classList.add('text-red-900');
+                } else if (remaining <= totalBudgetAmount * 0.2) {
+                    remainingBudgetEl.parentElement.classList.add('bg-orange-200');
+                    remainingBudgetEl.classList.remove('text-red-800');
+                    remainingBudgetEl.classList.add('text-orange-900');
+                } else {
+                    remainingBudgetEl.parentElement.classList.add('bg-green-50');
+                    remainingBudgetEl.classList.remove('text-red-900', 'text-orange-900');
+                    remainingBudgetEl.classList.add('text-green-800');
+                }
+            }
+
+            // --- D3.js Bar Chart Logic ---
+            const svg = d3.select("#budget-chart");
+            const margin = { top: 20, right: 20, bottom: 50, left: 60 };
+
+            function drawChart(data) {
+                // Ensure SVG dimensions are available
+                const svgElement = svg.node();
+                if (!svgElement) return;
+
+                const width = svgElement.clientWidth - margin.left - margin.right;
+                const height = svgElement.clientHeight - margin.top - margin.bottom;
+
+                // Clear the existing chart to prevent duplicates on redraw
+                svg.selectAll("g").remove();
+                const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+                // Define domains based on the data
+                const x = d3.scaleBand()
+                    .rangeRound([0, width])
+                    .padding(0.1);
+                x.domain(data.map(d => d.category));
+
+                const y = d3.scaleLinear()
+                    .rangeRound([height, 0]);
+                y.domain([0, d3.max(data, d => d.value)]);
+
+                // Append x-axis
+                g.append("g")
+                    .attr("class", "axis axis--x")
+                    .attr("transform", `translate(0,${height})`)
+                    .call(d3.axisBottom(x))
+                    .selectAll("text")
+                    .style("text-anchor", "end")
+                    .attr("dx", "-.8em")
+                    .attr("dy", ".15em")
+                    .attr("transform", "rotate(-45)");
+
+                // Append y-axis
+                g.append("g")
+                    .attr("class", "axis axis--y")
+                    .call(d3.axisLeft(y).ticks(10).tickFormat(d => `$${d.toLocaleString()}`))
+                    .append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 6)
+                    .attr("dy", "0.71em")
+                    .attr("text-anchor", "end")
+                    .text("Spending ($)");
+
+                // Draw the bars
+                g.selectAll(".bar")
+                    .data(data)
+                    .enter().append("rect")
+                    .attr("class", "bar")
+                    .attr("x", d => x(d.category))
+                    .attr("y", d => y(d.value))
+                    .attr("width", x.bandwidth())
+                    .attr("height", d => height - y(d.value))
+                    .attr("fill", "#3b82f6")
+                    .attr("rx", 6) // Rounded corners for bars
+                    .attr("ry", 6)
+                    .transition()
+                    .duration(1000)
+                    .attr("y", d => y(d.value))
+                    .attr("height", d => height - y(d.value));
+            }
+
+            // --- Dynamic Input and Event Handling ---
+            
+            // Function to render all input fields based on budgetData
+            function renderInputs() {
+                inputContainer.innerHTML = '';
+                budgetData.forEach((item, index) => {
+                    const inputDiv = document.createElement('div');
+                    inputDiv.classList.add('bg-white', 'p-4', 'rounded-xl', 'shadow-sm', 'border', 'border-gray-200');
+
+                    // Create the label and input elements
+                    inputDiv.innerHTML = `
+                        <div class="flex items-center justify-between mb-2">
+                            <label for="input-${index}" class="block text-sm font-medium text-gray-700">${item.category} ($)</label>
+                            <button data-index="${index}" class="delete-btn text-gray-400 hover:text-red-500 transition duration-300 transform hover:scale-110">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                  <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                        </div>
+                        <input type="number" id="input-${index}" value="${item.value}" min="0" data-category="${item.category}" class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 transition duration-150 p-2">
+                    `;
+                    inputContainer.appendChild(inputDiv);
+                });
+            }
+
+            // Handles changes to any input field
+            inputContainer.addEventListener('input', (event) => {
+                if (event.target.tagName === 'INPUT' && event.target.type === 'number') {
+                    const categoryName = event.target.dataset.category;
+                    const value = parseFloat(event.target.value) || 0;
+                    const itemIndex = budgetData.findIndex(item => item.category === categoryName);
+                    if (itemIndex !== -1) {
+                        budgetData[itemIndex].value = value;
+                        drawChart(budgetData);
+                        updateSummaryCards();
+                    }
+                }
+            });
+
+            // Handles the delete button click
+            inputContainer.addEventListener('click', (event) => {
+                if (event.target.closest('.delete-btn')) {
+                    const btn = event.target.closest('.delete-btn');
+                    const index = parseInt(btn.dataset.index);
+                    if (!isNaN(index)) {
+                        budgetData.splice(index, 1);
+                        renderInputs();
+                        drawChart(budgetData);
+                        updateSummaryCards();
+                    }
+                }
+            });
+
+            // --- Modal Logic ---
+            addCategoryBtn.addEventListener('click', () => {
+                addModal.classList.remove('hidden');
+                categoryNameInput.value = ''; // Reset input
+                categoryNameInput.focus();
+            });
+
+            cancelModalBtn.addEventListener('click', () => {
+                addModal.classList.add('hidden');
+            });
+
+            addModalBtn.addEventListener('click', () => {
+                const newCategoryName = categoryNameInput.value.trim();
+                if (newCategoryName) {
+                    const newCategory = { category: newCategoryName, value: 0 };
+                    budgetData.push(newCategory);
+                    renderInputs();
+                    drawChart(budgetData);
+                    updateSummaryCards();
+                    addModal.classList.add('hidden');
+                }
+            });
+
+            // Initial render
+            renderInputs();
+            drawChart(budgetData);
+            updateSummaryCards();
+            
+            // Re-draw chart on window resize
+            window.addEventListener('resize', () => {
+                drawChart(budgetData);
+            });
+        });
+    </script>
+
+</body>
+</html>
